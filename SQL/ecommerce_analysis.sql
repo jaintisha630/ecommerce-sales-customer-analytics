@@ -325,3 +325,153 @@ SELECT
 FROM customer_segments
 GROUP BY customer_segment
 ORDER BY segment_revenue DESC;
+
+-- ============================================================
+-- SECTION 3: PRODUCT & INVENTORY ANALYSIS
+-- ============================================================
+
+
+-- Q17. Which products sold the highest quantity?
+
+SELECT
+    p.product_id,
+    p.product_name,
+    SUM(oi.quantity) AS quantity_sold
+FROM products p
+JOIN order_items oi
+    ON p.product_id = oi.product_id
+JOIN orders o
+    ON oi.order_id = o.order_id
+WHERE o.status <> 'Cancelled'
+GROUP BY p.product_id, p.product_name
+ORDER BY quantity_sold DESC;
+
+
+-- Q18. Which products generated the highest revenue?
+
+SELECT
+    p.product_id,
+    p.product_name,
+    SUM(oi.quantity) AS quantity_sold,
+    SUM(p.price * oi.quantity) AS product_revenue
+FROM products p
+JOIN order_items oi
+    ON p.product_id = oi.product_id
+JOIN orders o
+    ON oi.order_id = o.order_id
+WHERE o.status <> 'Cancelled'
+GROUP BY p.product_id, p.product_name
+ORDER BY product_revenue DESC;
+
+
+-- Q19. Which products have never been purchased through a valid order?
+
+SELECT
+    p.product_id,
+    p.product_name
+FROM products p
+LEFT JOIN order_items oi
+    ON p.product_id = oi.product_id
+LEFT JOIN orders o
+    ON oi.order_id = o.order_id
+    AND o.status <> 'Cancelled'
+WHERE o.order_id IS NULL;
+
+
+-- Q20. What is the average product price within each category?
+
+SELECT
+    c.category_name,
+    ROUND(AVG(p.price), 2) AS average_product_price
+FROM categories c
+JOIN products p
+    ON c.category_id = p.category_id
+GROUP BY c.category_id, c.category_name
+ORDER BY average_product_price DESC;
+
+
+-- Q21. Which products are priced above their category average?
+
+WITH product_prices AS (
+    SELECT
+        p.product_id,
+        p.product_name,
+        c.category_name,
+        p.price,
+        AVG(p.price) OVER (
+            PARTITION BY p.category_id
+        ) AS category_avg_price
+    FROM products p
+    JOIN categories c
+        ON p.category_id = c.category_id
+)
+SELECT
+    product_id,
+    product_name,
+    category_name,
+    price,
+    ROUND(category_avg_price, 2) AS category_avg_price
+FROM product_prices
+WHERE price > category_avg_price
+ORDER BY category_name, price DESC;
+
+
+-- Q22. Which actively selling products may face inventory risk?
+
+SELECT
+    p.product_id,
+    p.product_name,
+    p.stock,
+    SUM(oi.quantity) AS quantity_sold,
+    SUM(p.price * oi.quantity) AS revenue
+FROM products p
+JOIN order_items oi
+    ON p.product_id = oi.product_id
+JOIN orders o
+    ON oi.order_id = o.order_id
+WHERE o.status <> 'Cancelled'
+  AND p.stock < 50
+GROUP BY
+    p.product_id,
+    p.product_name,
+    p.stock
+ORDER BY p.stock ASC;
+
+
+-- Q23. How are product categories performing overall?
+
+WITH category_metrics AS (
+    SELECT
+        c.category_id,
+        c.category_name,
+        COUNT(DISTINCT p.product_id) AS total_products,
+        ROUND(AVG(p.price), 2) AS average_product_price
+    FROM categories c
+    LEFT JOIN products p
+        ON c.category_id = p.category_id
+    GROUP BY c.category_id, c.category_name
+),
+sales_metrics AS (
+    SELECT
+        p.category_id,
+        SUM(oi.quantity) AS quantity_sold,
+        SUM(p.price * oi.quantity) AS revenue
+    FROM products p
+    JOIN order_items oi
+        ON p.product_id = oi.product_id
+    JOIN orders o
+        ON oi.order_id = o.order_id
+    WHERE o.status <> 'Cancelled'
+    GROUP BY p.category_id
+)
+SELECT
+    cm.category_id,
+    cm.category_name,
+    cm.total_products,
+    COALESCE(sm.quantity_sold, 0) AS quantity_sold,
+    COALESCE(sm.revenue, 0) AS revenue,
+    cm.average_product_price
+FROM category_metrics cm
+LEFT JOIN sales_metrics sm
+    ON cm.category_id = sm.category_id
+ORDER BY revenue DESC;
