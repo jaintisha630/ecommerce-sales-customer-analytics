@@ -68,11 +68,11 @@ SQL techniques demonstrated include JOINs, aggregations, CTEs, subqueries, CASE 
 
 ### Executive Overview
 
-![Executive Overview](Images/executive_overview.png)
+![Executive Overview](Images/executive_overview.png.png)
 
 ### Customer & Product Analysis
 
-![Customer and Product Analysis](Images/customer_product_analysis.png)
+![Customer and Product Analysis](Images/customer_product_analysis.png.png)
 
 ---
 
