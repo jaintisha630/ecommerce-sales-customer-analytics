@@ -142,3 +142,186 @@ JOIN orders o
 WHERE o.status <> 'Cancelled'
 GROUP BY p.product_id, p.product_name
 ORDER BY revenue DESC;
+
+-- ============================================================
+-- SECTION 2: CUSTOMER ANALYSIS
+-- ============================================================
+
+
+-- Q9. How much revenue has each customer generated?
+
+SELECT
+    c.customer_id,
+    c.customer_name,
+    COUNT(DISTINCT o.order_id) AS valid_orders,
+    COALESCE(SUM(p.price * oi.quantity), 0) AS customer_spend
+FROM customers c
+LEFT JOIN orders o
+    ON c.customer_id = o.customer_id
+    AND o.status <> 'Cancelled'
+LEFT JOIN order_items oi
+    ON o.order_id = oi.order_id
+LEFT JOIN products p
+    ON oi.product_id = p.product_id
+GROUP BY c.customer_id, c.customer_name
+ORDER BY customer_spend DESC;
+
+
+-- Q10. Who are the top 5 customers by spending?
+
+SELECT
+    c.customer_id,
+    c.customer_name,
+    SUM(p.price * oi.quantity) AS customer_spend
+FROM customers c
+JOIN orders o
+    ON c.customer_id = o.customer_id
+JOIN order_items oi
+    ON o.order_id = oi.order_id
+JOIN products p
+    ON oi.product_id = p.product_id
+WHERE o.status <> 'Cancelled'
+GROUP BY c.customer_id, c.customer_name
+ORDER BY customer_spend DESC
+LIMIT 5;
+
+
+-- Q11. Which customers are repeat customers?
+
+SELECT
+    c.customer_id,
+    c.customer_name,
+    COUNT(DISTINCT o.order_id) AS valid_orders
+FROM customers c
+JOIN orders o
+    ON c.customer_id = o.customer_id
+WHERE o.status <> 'Cancelled'
+GROUP BY c.customer_id, c.customer_name
+HAVING COUNT(DISTINCT o.order_id) > 1
+ORDER BY valid_orders DESC;
+
+
+-- Q12. Which customers have no valid orders?
+
+SELECT
+    c.customer_id,
+    c.customer_name,
+    c.city,
+    c.signup_date
+FROM customers c
+LEFT JOIN orders o
+    ON c.customer_id = o.customer_id
+    AND o.status <> 'Cancelled'
+WHERE o.order_id IS NULL;
+
+
+-- Q13. What are each customer's first and latest valid order dates?
+
+SELECT
+    c.customer_id,
+    c.customer_name,
+    MIN(o.order_date) AS first_order_date,
+    MAX(o.order_date) AS latest_order_date
+FROM customers c
+JOIN orders o
+    ON c.customer_id = o.customer_id
+WHERE o.status <> 'Cancelled'
+GROUP BY c.customer_id, c.customer_name
+ORDER BY first_order_date;
+
+
+-- Q14. Which customers spend more than the average customer?
+
+WITH customer_spending AS (
+    SELECT
+        c.customer_id,
+        c.customer_name,
+        COALESCE(SUM(p.price * oi.quantity), 0) AS customer_spend
+    FROM customers c
+    LEFT JOIN orders o
+        ON c.customer_id = o.customer_id
+        AND o.status <> 'Cancelled'
+    LEFT JOIN order_items oi
+        ON o.order_id = oi.order_id
+    LEFT JOIN products p
+        ON oi.product_id = p.product_id
+    GROUP BY c.customer_id, c.customer_name
+)
+SELECT
+    customer_id,
+    customer_name,
+    customer_spend
+FROM customer_spending
+WHERE customer_spend > (
+    SELECT AVG(customer_spend)
+    FROM customer_spending
+)
+ORDER BY customer_spend DESC;
+
+
+-- Q15. What is the customer revenue performance by city?
+
+SELECT
+    c.city,
+    COUNT(DISTINCT c.customer_id) AS customers_with_valid_orders,
+    COUNT(DISTINCT o.order_id) AS valid_orders,
+    SUM(p.price * oi.quantity) AS revenue,
+    ROUND(
+        SUM(p.price * oi.quantity) /
+        COUNT(DISTINCT c.customer_id),
+        2
+    ) AS revenue_per_customer
+FROM customers c
+JOIN orders o
+    ON c.customer_id = o.customer_id
+JOIN order_items oi
+    ON o.order_id = oi.order_id
+JOIN products p
+    ON oi.product_id = p.product_id
+WHERE o.status <> 'Cancelled'
+GROUP BY c.city
+ORDER BY revenue DESC;
+
+
+-- Q16. How can customers be segmented based on total spending?
+
+WITH customer_spending AS (
+    SELECT
+        c.customer_id,
+        c.customer_name,
+        COALESCE(SUM(p.price * oi.quantity), 0) AS customer_spend
+    FROM customers c
+    LEFT JOIN orders o
+        ON c.customer_id = o.customer_id
+        AND o.status <> 'Cancelled'
+    LEFT JOIN order_items oi
+        ON o.order_id = oi.order_id
+    LEFT JOIN products p
+        ON oi.product_id = p.product_id
+    GROUP BY c.customer_id, c.customer_name
+),
+customer_segments AS (
+    SELECT
+        customer_id,
+        customer_name,
+        customer_spend,
+        CASE
+            WHEN customer_spend >= 7000 THEN 'High Value'
+            WHEN customer_spend >= 3000 THEN 'Medium Value'
+            ELSE 'Low Value'
+        END AS customer_segment
+    FROM customer_spending
+)
+SELECT
+    customer_segment,
+    COUNT(*) AS total_customers,
+    SUM(customer_spend) AS segment_revenue,
+    ROUND(AVG(customer_spend), 2) AS average_customer_spend,
+    ROUND(
+        SUM(customer_spend) * 100.0 /
+        (SELECT SUM(customer_spend) FROM customer_segments),
+        2
+    ) AS revenue_contribution_percentage
+FROM customer_segments
+GROUP BY customer_segment
+ORDER BY segment_revenue DESC;
