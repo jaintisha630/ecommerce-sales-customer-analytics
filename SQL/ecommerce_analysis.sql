@@ -713,3 +713,280 @@ SELECT
     ) AS mom_growth_percentage
 FROM revenue_comparison
 ORDER BY month;
+
+-- ============================================================
+-- SECTION 5: BUSINESS CASE STUDY & EXECUTIVE ANALYSIS
+-- ============================================================
+
+
+-- Q31. Which customer segment generates the highest business value?
+
+WITH customer_spending AS (
+    SELECT
+        c.customer_id,
+        c.customer_name,
+        COALESCE(SUM(p.price * oi.quantity), 0) AS customer_spend
+    FROM customers c
+    LEFT JOIN orders o
+        ON c.customer_id = o.customer_id
+        AND o.status <> 'Cancelled'
+    LEFT JOIN order_items oi
+        ON o.order_id = oi.order_id
+    LEFT JOIN products p
+        ON oi.product_id = p.product_id
+    GROUP BY c.customer_id, c.customer_name
+),
+customer_segments AS (
+    SELECT
+        customer_id,
+        customer_name,
+        customer_spend,
+        CASE
+            WHEN customer_spend >= 7000 THEN 'High Value'
+            WHEN customer_spend >= 3000 THEN 'Medium Value'
+            ELSE 'Low Value'
+        END AS customer_segment
+    FROM customer_spending
+)
+SELECT
+    customer_segment,
+    COUNT(*) AS total_customers,
+    SUM(customer_spend) AS segment_revenue,
+    ROUND(AVG(customer_spend), 2) AS avg_customer_spend,
+    ROUND(
+        SUM(customer_spend) * 100.0 /
+        SUM(SUM(customer_spend)) OVER (),
+        2
+    ) AS revenue_contribution_percentage
+FROM customer_segments
+GROUP BY customer_segment
+ORDER BY segment_revenue DESC;
+
+
+-- Q32. What does customer retention look like?
+
+WITH customer_orders AS (
+    SELECT
+        c.customer_id,
+        c.customer_name,
+        COUNT(DISTINCT o.order_id) AS valid_orders
+    FROM customers c
+    LEFT JOIN orders o
+        ON c.customer_id = o.customer_id
+        AND o.status <> 'Cancelled'
+    GROUP BY c.customer_id, c.customer_name
+),
+customer_types AS (
+    SELECT
+        customer_id,
+        customer_name,
+        valid_orders,
+        CASE
+            WHEN valid_orders = 0 THEN 'No Valid Orders'
+            WHEN valid_orders = 1 THEN 'One-Time'
+            ELSE 'Repeat'
+        END AS customer_type
+    FROM customer_orders
+)
+SELECT
+    customer_type,
+    COUNT(*) AS total_customers,
+    ROUND(
+        COUNT(*) * 100.0 /
+        SUM(COUNT(*)) OVER (),
+        2
+    ) AS percentage_of_customers
+FROM customer_types
+GROUP BY customer_type
+ORDER BY total_customers DESC;
+
+
+-- Q33. How does the product portfolio perform by revenue segment?
+
+WITH product_performance AS (
+    SELECT
+        p.product_id,
+        p.product_name,
+        COALESCE(
+            SUM(
+                CASE
+                    WHEN o.status <> 'Cancelled'
+                    THEN p.price * oi.quantity
+                    ELSE 0
+                END
+            ), 0
+        ) AS product_revenue,
+        COALESCE(
+            SUM(
+                CASE
+                    WHEN o.status <> 'Cancelled'
+                    THEN oi.quantity
+                    ELSE 0
+                END
+            ), 0
+        ) AS quantity_sold
+    FROM products p
+    LEFT JOIN order_items oi
+        ON p.product_id = oi.product_id
+    LEFT JOIN orders o
+        ON oi.order_id = o.order_id
+    GROUP BY p.product_id, p.product_name
+),
+product_segments AS (
+    SELECT
+        product_id,
+        product_name,
+        product_revenue,
+        quantity_sold,
+        CASE
+            WHEN product_revenue = 0 THEN 'No Sales'
+            WHEN product_revenue >= 5000 THEN 'High Revenue'
+            WHEN product_revenue >= 2000 THEN 'Medium Revenue'
+            ELSE 'Low Revenue'
+        END AS revenue_segment
+    FROM product_performance
+)
+SELECT
+    revenue_segment,
+    COUNT(*) AS total_products,
+    SUM(quantity_sold) AS total_quantity_sold,
+    SUM(product_revenue) AS segment_revenue
+FROM product_segments
+GROUP BY revenue_segment
+ORDER BY segment_revenue DESC;
+
+
+-- Q34. What are the company's headline business KPIs?
+
+SELECT
+    (SELECT COUNT(*) FROM customers) AS total_customers,
+
+    (SELECT COUNT(*) FROM orders) AS total_orders,
+
+    (
+        SELECT COUNT(*)
+        FROM orders
+        WHERE status <> 'Cancelled'
+    ) AS valid_orders,
+
+    (
+        SELECT COUNT(*)
+        FROM orders
+        WHERE status = 'Cancelled'
+    ) AS cancelled_orders,
+
+    (
+        SELECT SUM(p.price * oi.quantity)
+        FROM orders o
+        JOIN order_items oi
+            ON o.order_id = oi.order_id
+        JOIN products p
+            ON oi.product_id = p.product_id
+        WHERE o.status <> 'Cancelled'
+    ) AS total_revenue,
+
+    ROUND(
+        (
+            SELECT SUM(p.price * oi.quantity)
+            FROM orders o
+            JOIN order_items oi
+                ON o.order_id = oi.order_id
+            JOIN products p
+                ON oi.product_id = p.product_id
+            WHERE o.status <> 'Cancelled'
+        )
+        /
+        (
+            SELECT COUNT(*)
+            FROM orders
+            WHERE status <> 'Cancelled'
+        ),
+        2
+    ) AS average_order_value,
+
+    (SELECT COUNT(*) FROM products) AS total_products,
+
+    (
+        SELECT SUM(oi.quantity)
+        FROM order_items oi
+        JOIN orders o
+            ON oi.order_id = o.order_id
+        WHERE o.status <> 'Cancelled'
+    ) AS total_quantity_sold;
+
+
+-- Q35. Executive business analysis:
+-- Consolidate the most decision-relevant findings from the project.
+
+WITH category_revenue AS (
+    SELECT
+        c.category_name,
+        SUM(p.price * oi.quantity) AS revenue
+    FROM categories c
+    JOIN products p
+        ON c.category_id = p.category_id
+    JOIN order_items oi
+        ON p.product_id = oi.product_id
+    JOIN orders o
+        ON oi.order_id = o.order_id
+    WHERE o.status <> 'Cancelled'
+    GROUP BY c.category_id, c.category_name
+),
+customer_spending AS (
+    SELECT
+        c.customer_id,
+        COALESCE(SUM(p.price * oi.quantity), 0) AS customer_spend
+    FROM customers c
+    LEFT JOIN orders o
+        ON c.customer_id = o.customer_id
+        AND o.status <> 'Cancelled'
+    LEFT JOIN order_items oi
+        ON o.order_id = oi.order_id
+    LEFT JOIN products p
+        ON oi.product_id = p.product_id
+    GROUP BY c.customer_id
+)
+SELECT
+    (SELECT SUM(revenue) FROM category_revenue) AS total_revenue,
+
+    (
+        SELECT category_name
+        FROM category_revenue
+        ORDER BY revenue DESC
+        LIMIT 1
+    ) AS top_category,
+
+    (
+        SELECT revenue
+        FROM category_revenue
+        ORDER BY revenue DESC
+        LIMIT 1
+    ) AS top_category_revenue,
+
+    (
+        SELECT ROUND(
+            SUM(
+                CASE
+                    WHEN customer_spend >= 7000
+                    THEN customer_spend
+                    ELSE 0
+                END
+            ) * 100.0 / SUM(customer_spend),
+            2
+        )
+        FROM customer_spending
+    ) AS high_value_customer_revenue_pct,
+
+    (
+        SELECT COUNT(*)
+        FROM products p
+        WHERE p.stock < 50
+          AND EXISTS (
+              SELECT 1
+              FROM order_items oi
+              JOIN orders o
+                  ON oi.order_id = o.order_id
+              WHERE oi.product_id = p.product_id
+                AND o.status <> 'Cancelled'
+          )
+    ) AS active_products_below_50_stock;
