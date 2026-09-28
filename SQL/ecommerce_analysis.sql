@@ -475,3 +475,241 @@ FROM category_metrics cm
 LEFT JOIN sales_metrics sm
     ON cm.category_id = sm.category_id
 ORDER BY revenue DESC;
+
+-- ============================================================
+-- SECTION 4: ADVANCED ANALYSIS & WINDOW FUNCTIONS
+-- ============================================================
+
+
+-- Q24. Rank products by revenue within each category.
+
+WITH product_revenue AS (
+    SELECT
+        c.category_name,
+        p.product_id,
+        p.product_name,
+        SUM(p.price * oi.quantity) AS revenue
+    FROM categories c
+    JOIN products p
+        ON c.category_id = p.category_id
+    JOIN order_items oi
+        ON p.product_id = oi.product_id
+    JOIN orders o
+        ON oi.order_id = o.order_id
+    WHERE o.status <> 'Cancelled'
+    GROUP BY
+        c.category_name,
+        p.product_id,
+        p.product_name
+)
+SELECT
+    category_name,
+    product_name,
+    revenue,
+    RANK() OVER (
+        PARTITION BY category_name
+        ORDER BY revenue DESC
+    ) AS category_rank
+FROM product_revenue
+ORDER BY category_name, category_rank;
+
+
+-- Q25. Find the top 3 revenue-generating products in each category.
+
+WITH product_revenue AS (
+    SELECT
+        c.category_name,
+        p.product_id,
+        p.product_name,
+        SUM(p.price * oi.quantity) AS revenue
+    FROM categories c
+    JOIN products p
+        ON c.category_id = p.category_id
+    JOIN order_items oi
+        ON p.product_id = oi.product_id
+    JOIN orders o
+        ON oi.order_id = o.order_id
+    WHERE o.status <> 'Cancelled'
+    GROUP BY
+        c.category_name,
+        p.product_id,
+        p.product_name
+),
+ranked_products AS (
+    SELECT
+        category_name,
+        product_name,
+        revenue,
+        ROW_NUMBER() OVER (
+            PARTITION BY category_name
+            ORDER BY revenue DESC
+        ) AS product_rank
+    FROM product_revenue
+)
+SELECT
+    category_name,
+    product_name,
+    revenue,
+    product_rank
+FROM ranked_products
+WHERE product_rank <= 3
+ORDER BY category_name, product_rank;
+
+
+-- Q26. Rank customers according to their total spending.
+
+WITH customer_spending AS (
+    SELECT
+        c.customer_id,
+        c.customer_name,
+        COALESCE(SUM(p.price * oi.quantity), 0) AS customer_spend
+    FROM customers c
+    LEFT JOIN orders o
+        ON c.customer_id = o.customer_id
+        AND o.status <> 'Cancelled'
+    LEFT JOIN order_items oi
+        ON o.order_id = oi.order_id
+    LEFT JOIN products p
+        ON oi.product_id = p.product_id
+    GROUP BY c.customer_id, c.customer_name
+)
+SELECT
+    customer_id,
+    customer_name,
+    customer_spend,
+    DENSE_RANK() OVER (
+        ORDER BY customer_spend DESC
+    ) AS spending_rank
+FROM customer_spending
+ORDER BY spending_rank, customer_name;
+
+
+-- Q27. Who are the top 2 customers by spending within each city?
+
+WITH customer_spending AS (
+    SELECT
+        c.customer_id,
+        c.customer_name,
+        c.city,
+        COALESCE(SUM(p.price * oi.quantity), 0) AS customer_spend
+    FROM customers c
+    LEFT JOIN orders o
+        ON c.customer_id = o.customer_id
+        AND o.status <> 'Cancelled'
+    LEFT JOIN order_items oi
+        ON o.order_id = oi.order_id
+    LEFT JOIN products p
+        ON oi.product_id = p.product_id
+    GROUP BY
+        c.customer_id,
+        c.customer_name,
+        c.city
+),
+ranked_customers AS (
+    SELECT
+        customer_id,
+        customer_name,
+        city,
+        customer_spend,
+        ROW_NUMBER() OVER (
+            PARTITION BY city
+            ORDER BY customer_spend DESC
+        ) AS city_rank
+    FROM customer_spending
+)
+SELECT
+    customer_id,
+    customer_name,
+    city,
+    customer_spend,
+    city_rank
+FROM ranked_customers
+WHERE city_rank <= 2
+ORDER BY city, city_rank;
+
+
+-- Q28. What is the running cumulative revenue by month?
+
+WITH monthly_revenue AS (
+    SELECT
+        DATE_FORMAT(o.order_date, '%Y-%m') AS month,
+        SUM(p.price * oi.quantity) AS revenue
+    FROM orders o
+    JOIN order_items oi
+        ON o.order_id = oi.order_id
+    JOIN products p
+        ON oi.product_id = p.product_id
+    WHERE o.status <> 'Cancelled'
+    GROUP BY DATE_FORMAT(o.order_date, '%Y-%m')
+)
+SELECT
+    month,
+    revenue,
+    SUM(revenue) OVER (
+        ORDER BY month
+    ) AS cumulative_revenue
+FROM monthly_revenue
+ORDER BY month;
+
+
+-- Q29. What percentage of total revenue is contributed by each category?
+
+WITH category_revenue AS (
+    SELECT
+        c.category_name,
+        SUM(p.price * oi.quantity) AS revenue
+    FROM categories c
+    JOIN products p
+        ON c.category_id = p.category_id
+    JOIN order_items oi
+        ON p.product_id = oi.product_id
+    JOIN orders o
+        ON oi.order_id = o.order_id
+    WHERE o.status <> 'Cancelled'
+    GROUP BY c.category_id, c.category_name
+)
+SELECT
+    category_name,
+    revenue,
+    ROUND(
+        revenue * 100.0 / SUM(revenue) OVER (),
+        2
+    ) AS revenue_contribution_percentage
+FROM category_revenue
+ORDER BY revenue DESC;
+
+
+-- Q30. What is the month-over-month revenue growth?
+
+WITH monthly_revenue AS (
+    SELECT
+        DATE_FORMAT(o.order_date, '%Y-%m') AS month,
+        SUM(p.price * oi.quantity) AS revenue
+    FROM orders o
+    JOIN order_items oi
+        ON o.order_id = oi.order_id
+    JOIN products p
+        ON oi.product_id = p.product_id
+    WHERE o.status <> 'Cancelled'
+    GROUP BY DATE_FORMAT(o.order_date, '%Y-%m')
+),
+revenue_comparison AS (
+    SELECT
+        month,
+        revenue,
+        LAG(revenue) OVER (
+            ORDER BY month
+        ) AS previous_month_revenue
+    FROM monthly_revenue
+)
+SELECT
+    month,
+    revenue,
+    previous_month_revenue,
+    ROUND(
+        (revenue - previous_month_revenue) * 100.0 /
+        previous_month_revenue,
+        2
+    ) AS mom_growth_percentage
+FROM revenue_comparison
+ORDER BY month;
